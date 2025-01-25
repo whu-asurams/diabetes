@@ -1,0 +1,636 @@
+---
+title: "Course9-part2-whu"
+author: "Wanjun Hu"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Section 1. Introduction
+ 
+This project studies a very small dataset, called diabetes.csv. The dataset is provided at the 
+Kaggle website. Here is the link https://www.kaggle.com/datasets/akshaydattatraykhare/diabetes-dataset. 
+According to the webpage at kaggle, this daatset 
+is obtained from the national Institute of Diabetes and Digestive and Kindney Diseases.
+
+It is a collection of 768 records of women ranging from 21 to 80 years old. All are Pima Indian heritage. The datset contains 9 variables, pregnancies, Glucose, BloodPressure, SkinThickness, Insulin, BMI, DiabetesPedigreeFunction, Age and Outcome. All variables are of 
+integer or numeric types. The outcome is either 0 or 1, while O means not having diabetes, and 1 having diabetes. 
+
+
+## Subsection 1.1. Downloading the dataset
+
+Downloading directly from the kaggle website is tricky. It requres login. Instead, we downloaded the csv file and upload to my own github repo https://www.github.com/whu-asurams/diabetes. 
+One can download  the whole repo as a zip file. The link is https://github.com/whu-asurams/diabetes/archive/refs/heads/main.zip. 
+
+After downloading the zip file, we can extract the diabetes.csv file, which is inside the folder "diabetes-main/".
+  
+  The following code will handle the the downloading and unzipping task.
+
+
+```{r echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(dplyr)
+
+options(timeout = 120)
+
+diabetes_file<- "diabetes.zip"
+
+path<- "https://github.com/whu-asurams/diabetes/archive/refs/heads/main.zip"
+if(!file.exists(diabetes_file))
+  download.file(path, diabetes_file)
+
+csv_file <- "diabetes-main/diabetes.csv"
+if(!file.exists(csv_file))
+  unzip(diabetes_file, csv_file)
+
+```
+
+## Subsection 1.2. Basic information of the dataset
+
+After loading the "daibetes.csv" file into R. One can check quickly the information of the dataset. 
+
+The variables are 
+
+Pregnancies - number of times a woman has been pregnant before
+
+Glucode - The glucose reading of a blood test
+
+BloodPressure - the blood pressur
+
+SkinThickness - The skid thickness
+
+Insulin   - The insulin reading of blood work
+
+BMI - BMI number
+
+DiabetesPedigreeFunction - A number calculated based on the heritage. We rename it to DPF for formatting purpose.
+ 
+Age - Patentien's age when she was recorded.
+
+Outcome - whether or not a patient has diabetes.
+
+```{r}
+
+```
+
+The structure of the dataset is provided below
+
+```{r,echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+# Read the dataset into R
+
+dl <- read.csv(csv_file, header=TRUE, stringsAsFactors=FALSE)
+
+#Rename DiabetesPedigreeFunction to DPF for display purpose
+dl <- dl %>% rename(DPF = DiabetesPedigreeFunction)
+# Inspect the structure of the dataset.
+str(dl)
+
+
+```
+
+
+The data range of each variable is listed below.
+
+```{r, echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+# Data range of each variable
+
+vv<- c("Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI", "DPF", "Age")
+
+res<- lapply(vv, function (vv){
+  va<- dl[[vv]]
+  class(va)
+  if(class(va) == "integer")
+    sprintf("%-25s: integer, range = (%d, %d)", vv, min(dl[[vv]]), max(dl[[vv]]))
+  else
+    sprintf("%-25s: numeric, range = (%.3f, %.3f)", vv, min(dl[[vv]]), max(dl[[vv]]))
+})
+
+unlist(res)
+```
+
+## Subsection 1.3. Split the dataset to training and test parts
+
+We split the dataset into a training part and a test part. The training part is 80% of the dataset, while the test is 20%. 
+
+
+```{r, echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+# Subsection 1.3. Split the dataset into train_part and test_part.
+
+set.seed(1, sample.kind="Rounding") # if using R 3.6 or later
+# set.seed(1) # if using R 3.5 or earlier
+
+test_index    <- createDataPartition(y = dl$Age, times = 1, p = 0.2, list = FALSE)
+train_part <- dl[-test_index,]
+test_part     <- dl[test_index,]
+
+# Clean temporary varisbles that will not be used. 
+#rm(dl, test_index)
+print("The summary of train_part")
+str(train_part)
+print("=========================================")
+
+print("The summary of test_part")
+str(test_part)
+```
+
+
+In the following, we will analyze the dataset and select three combinations of predictors. Then, we will use each combination of predictors to feed a sequence of models. An ensemble analysis is also provided at the end. 
+
+
+# Section 2. Methods/Analysis
+a methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, insights gained, and your modeling approaches (you must use at least two different models or algorithms);
+
+
+The dataset is clean and well-prepared. No further cleaning is necessary. 
+
+Each of the variables is independent. Some variables such as blood pressure demonstarte a less relevancy to the outcome. We will then to find some combinations of the 8 variables, that provides the highest prediction accuracy. We train 7 models on each of 
+the combinations.
+
+## Subsection 2.1. Inspect each predicator (variable)
+
+The density plot of each variable is provided below. One can quickly observe that 
+the variables Glucose, BloodPressure and BMI are closed to normal distribution. Others are skewed to the right, or positively skewed. 
+
+```{r, echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+# Subsection 2.1. Inspect each predicator (variable)
+
+library(dplyr)
+library(ggplot2)
+if(!require(gridExtra)) install.packages("gridExtra")
+library(gridExtra)
+
+pa1 <- train_part %>% ggplot(aes(x=Pregnancies))  +
+      geom_density(fill = "grey", bw=1)   +
+      xlab("Number of Pregnancies") +
+      ggtitle("1")
+pa2 <- train_part %>% ggplot(aes(x=Glucose)) +      
+      geom_density(fill = "grey", bw=10) +
+      xlab("Glucose") +
+      ggtitle("2")
+pa3 <- train_part %>% ggplot(aes(x=BloodPressure)) +
+      geom_density(fill = "grey", bw=5) +  
+      xlab("Blood Pressure") +        
+      ggtitle("3")
+pa4 <- train_part %>% ggplot(aes(x=SkinThickness)) +
+      geom_density(fill = "grey", bw = 1) +  
+      xlab("Skin Thickness") +
+      ggtitle("4")
+pa5 <- train_part %>% ggplot(aes(x=Insulin))  +
+      geom_density(fill = "grey", bw = 10)   +
+      xlab("Insulin") +
+      ggtitle("5")
+pa6 <- train_part %>% ggplot(aes(x=BMI)) +      
+      geom_density(fill = "grey", bw = 1) +
+      xlab("BMI") +
+      ggtitle("6")
+pa7 <- train_part %>% ggplot(aes(x=DPF)) +
+      geom_density(fill = "grey", bw = 1) +  
+      xlab("Diabetes Pedigree Function") +        
+      ggtitle("7")
+pa8 <- train_part %>% ggplot(aes(x=Age)) +
+      geom_density(fill = "grey", bw = 1) +  
+      xlab("Age") +        
+      ggtitle("8")
+
+grid.arrange(pa1,pa2,pa3,pa4,pa5,pa6,pa7,pa8, ncol=4)
+
+```
+
+## Subsection 2.2. Correlations
+
+Running correlation test on each variblae of "Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI", "DPF", "Age", against the Outcome varibale, we obtain the following summary.
+
+```{r,echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+# Subsection 2.2. Correlations
+
+outcome<- train_part$Outcome
+res<- lapply(vv, function(vv){
+  va<- train_part[[vv]]
+  cor_res<-cor.test(va, outcome)
+  #sprintf("%-15s: t=%2.2f, df=%3d, p-value=%1.1e %s 0.05, 95 conf. interv =(%0.4f, %0.4f), cor=%.4f",
+  sprintf("%-15s: t=%2.2f, df=%3d, p-value=%1.1e %s 0.05, cor=%.4f",
+          vv, cor_res$statistic, cor_res$parameter, cor_res$p.value, ifelse(cor_res$p.value<=0.05, "<=", ">"),
+  #        cor_res$conf.int[1], cor_res$conf.int[2], cor_res$estimate)
+          cor_res$estimate)
+})
+
+unlist(res)
+
+```
+All variables have positive correlation with the outcome. The p-values are also less than 0.05, which means the positive correlations are statistically significant. In particular, the variables Glucose, BMI,, Pregnancies, Age
+demonstrate a correlation of more than 0.2, while the SkinThickness has a much smaller correlation. 
+
+
+## Subsection 2.3. Bar charts against Outcome
+
+The bar chart of each variable against outcome is also provided. One can quickly observe that the SkinThickness shows no patterns. The BloodPressure and Insulin shows a little bit pattern. 
+
+
+```{r,echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+#Subsection 2.3. Bar charts against Outcome
+pb1 <- train_part %>%
+  group_by(Pregnancies, Outcome) %>%
+  summarize(n=n())%>%
+  ggplot(aes(x=Pregnancies, y=n, fill=as.factor(Outcome)))  +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  xlab("Number of Pregnancies") +
+  ggtitle("1")
+#pb1
+
+breaks<- c(0, 100, 130, 150, 200)
+pb2 <- train_part %>%
+  mutate(glucose_cut = cut(Glucose, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(glucose_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=glucose_cut, y=n, fill=as.factor(Outcome)))  +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")+
+  xlab("Glucose") +
+  ggtitle("2")
+#pb2
+
+breaks<- c(0, 60, 80, 100, 130, 150, 200)
+pb3 <- train_part %>% 
+  mutate(blood_pressure_cut = cut(BloodPressure, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(blood_pressure_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=blood_pressure_cut, y=n, fill=as.factor(Outcome))) +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")+
+  xlab("Blood Pressure") +        
+  ggtitle("3")
+#pb3
+
+breaks<- seq(0, 100, 10)
+pb4 <- train_part %>% 
+  mutate(skin_thickness_cut = cut(SkinThickness, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(skin_thickness_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=skin_thickness_cut, y=n, fill=as.factor(Outcome))) +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position = "none")+
+  xlab("Skin Thickness") +
+  ggtitle("4")
+#pb4
+
+
+#pb8
+
+grid.arrange(pb1,pb2,pb3,pb4, ncol=2)
+
+
+```
+
+See the other four
+
+```{r,echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+breaks<- c(0, 2, 25, 100, 500)
+pb5 <- train_part %>% 
+  mutate(insulin_cut = cut(Insulin, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(insulin_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=insulin_cut, y=n, fill=as.factor(Outcome))) +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")+
+  xlab("Insulin") +
+  ggtitle("5")
+#pb5
+
+breaks<- c(0, 18.5, 24.9, 29.9)
+pb6 <- train_part %>%
+  mutate(bmi_cut = cut(BMI, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(bmi_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=bmi_cut, y=n, fill=as.factor(Outcome))) +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")+
+  xlab("BMI") +
+  ggtitle("6")
+#pb6
+
+breaks<- seq(0, 2.6, 0.2)
+pb7 <- train_part %>% 
+  mutate(dpf_cut = cut(DPF, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(dpf_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=dpf_cut, y=n, fill=as.factor(Outcome))) +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  xlab("Diabetes Pedigree Function") +      
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")+
+  ggtitle("7")
+#pb7
+
+breaks<- seq(20, 85, 5)
+pb8 <- train_part %>% 
+  mutate(age_cut = cut(Age, breaks=breaks, include.lowest=FALSE, right=FALSE)) %>%
+  group_by(age_cut, Outcome) %>%
+  summarize(n=n()) %>%
+  ggplot(aes(x=age_cut, y=n, fill=as.factor(Outcome))) +
+  geom_bar(stat="identity", show.legend = TRUE)   +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), legend.position="none")+
+  xlab("Age") +        
+  ggtitle("8")
+
+grid.arrange(pb5,pb6,pb7,pb8, ncol=2)
+```
+
+## Subsection 2.4. Select predictors
+
+Based on above analysis, we will select the following combinations of predictors
+
+1. Combination 1: all 8 varibles
+
+2. Combination 2: Pregnancies, Glucose, Insulin, BMI, DPF, and Age (all have correlations>0.15)
+
+3. Combination 3: Pregnancies, Glucose, BMI, and Age (all have correlations> 0.2)
+
+
+# Section 3. Results
+
+
+We will prepare three dataframe based on above analysis, and 7 models to train.
+
+
+## Subsection 3.1. Combinations of predictors
+
+According to above analysis, we choose the 
+three combinations. They are selected using the following code.
+
+
+
+```{r}
+# For train_part
+
+x1<- train_part[,-9]
+x2<- train_part%>%
+  select(Pregnancies, Glucose, Insulin, BMI, DPF, Age)
+x3<- train_part%>%
+  select(Pregnancies, Glucose, BMI, Age)
+
+y<-factor(train_part$Outcome)
+
+#For test_part
+xt1<- test_part[,-9]
+xt2<- test_part%>%
+  select(Pregnancies, Glucose, Insulin, BMI, DPF, Age)
+xt3<- test_part%>%
+  select(Pregnancies, Glucose, BMI, Age)
+
+yt<- factor(test_part$Outcome)
+
+```
+
+
+The models we will use are "glm", "lda", "naive_bayes", "knn", "gamLoess", "qda", "rf".
+
+```{r, echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+
+# Models to be used
+models <- c("glm", "lda", "naive_bayes", "knn", "gamLoess", "qda", "rf")
+
+
+# The train_pred function
+# It is used to train x, y and the predict on xt, yt.
+# Finally, it display a plot shows the train accuracy of each model, and
+# the average of predictions comparing to the outcome.
+
+train_pred<- function(x,xt, y, yt, title){
+  set.seed(1, sample.kind = "Rounding")
+  fits <- lapply(models, function(model){ 
+   # print(model)
+    train(x, y, method = model)
+  }) 
+  names(fits)<- models
+
+  train_accuracy<- lapply(models, function(model){ 
+    max(fits[[model]]$results$Accuracy)
+  }) 
+
+  #aa<- as.factor(unlist(aa))
+  train_accuracy<- unlist(train_accuracy)
+
+  pred_avg <- lapply(models, function(model){ 
+    test_preds <- predict(fits[[model]], xt)
+    avg<- mean(test_preds == yt)
+    avg
+  }) 
+
+  pred_avg<- unlist(pred_avg)
+
+
+  ggplot() +
+  geom_point(aes(x=models, y= train_accuracy), colour = "black")   +
+  geom_point(aes(x=models, y= pred_avg), colour = "red", size=3)   +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position="top")+
+  xlab("Models") +
+  ylab("Accuracy")+
+  ggtitle(title)
+}
+
+
+# function to train a dataset on each of the 7 models
+
+train_models<- function(x, y){
+  set.seed(1, sample.kind = "Rounding")
+  fits <- lapply(models, function(model){ 
+    print(model)
+    train(x, y, method = model)
+  }) 
+  names(fits)<- models
+  fits
+}
+
+# A function to extract training accuracy from the trained models.
+
+calculate_train_accuracies<- function(models, fits){
+  train_accuracy<- lapply(models, function(model){ 
+    max(fits[[model]]$results$Accuracy)
+  })
+  #aa<- as.factor(unlist(aa))
+  train_accuracy<- unlist(train_accuracy)
+  train_accuracy
+}  
+  
+# function to test the trained model on test dataset
+calculate_test_preds<- function(models, fits, xt){  
+  test_pred <- lapply(models, function(model){ 
+    predict(fits[[model]], xt)
+  }) 
+  test_pred
+}
+
+# a function that calculate the test prediction accuracy
+pred_accuracy<- function(tp, yt){
+  avg<- lapply(tp, function(tp){
+    mean(tp == yt)
+  })
+  unlist(avg)
+}  
+
+# A function to plot the training accuracy and test prediction accuracy
+plot_accuracy<- function(models, train_accuracy, pred_avg, title){  
+    ggplot() +
+    geom_point(aes(x=models, y= train_accuracy), colour = "black")   +
+    geom_point(aes(x=models, y= pred_avg), colour = "red", size=3)   +
+    theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position="top")+
+    xlab("Models") +
+    ylab("Accuracy")+
+    ggtitle(title)
+}
+
+
+
+```
+
+
+## Subsection 3.2. Train and predict
+
+Now, we will train and predict on each combination.
+
+### Combination 1: on all eight variables
+
+The training accuracy and test predictions are plotted below. 
+The models of "lda" and "naive bayes" provide the highest test prediction accuracy, which are around 0.73, while the knn model provides the lowest test prediction accuracy of around 0.684. 
+
+```{r, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+train_pred(x1,xt1, y, yt, "All eight predictors")
+```
+
+### Combination 2: On Pregnancies, Glucose, Insulin, BMI, DPF, and Age.
+
+Seven models are trained using the second set of data.
+The model "naive nayes" provides the highest prediction accuracy, which is around 0.75.
+The knn model provides the lowest prediction accuracy, which is 0.682
+
+```{r, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+train_pred(x2, xt2, y, yt, "Pregnancies, Glucose, Insulin, BMI, DPF, Ag")
+
+```
+
+
+### Combination 3: OnPregnancies, Glucose, BMI, and Age
+
+The third set of data is used for training in each of the seven models.
+The rf model provides the highest prediction accuray on the test dataset, which is around 0.755, while knn and lda provide the lowest at 0.715.
+
+```{r, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+train_pred(x3, xt3, y, yt, "Pregnancies, Glucose, BMI, Age")
+```
+
+
+In above charts, the black dots are the training accuracies using each model, while the big yellow dots are the average of the test predictions against the outcome. 
+
+In general, all models except "rf" are over trained. The over taining is likely due to the the sample size, especially the sample size of test dataset, which is only 155 records, comparing to an usually size of 20,000.
+
+
+The KNN model shows a lower accuracy, while the "glm" and "lda" models show a high accuracy.
+
+
+## Subsection 3.3. Ensemble of models
+
+We used 7 models in the training and predictions. Each model has a test prediction accuracy around 0.72. We can combine them togther and build a voting model, which uses majority votes, i,e., if 50% of the models say a patient has diabetes, then the new ensemble model predict that she has diabetes.
+
+We use the following function to build a dataframe that list the prediction of each model as  a column. Then, we add a new column, called "votes" and another called "y_hat".
+
+```{r, echo=TRUE,include=TRUE}
+
+# Ensemble model by majority vote
+model_ensemble<- function(tp){
+  dp<- as.data.frame(tp)
+  names(dp)<- models
+  dp<- dp%>%
+    mutate(votes = rowMeans(dp==1),
+         y_hat = ifelse(votes>=0.5, 1, 0))
+
+  mean(dp$y_hat==yt)
+}
+```
+
+### For combination 1: Using all eight predictors
+
+The test prediction accuracy is calculated below.
+
+```{r, echo=FALSE, include=FALSE, message=FALSE, warning=FALSE}
+
+# obtain the trained model on each data combination
+fits_1<- train_models(x1, y)
+fits_2<- train_models(x2, y)
+fits_3<- train_models(x3, y)
+
+
+# use the trained model to predict the test set on each combination
+test_prediction_1<- calculate_test_preds(models, fits_1, xt1)
+test_prediction_2<- calculate_test_preds(models, fits_2, xt2)
+test_prediction_3<- calculate_test_preds(models, fits_3, xt3)
+
+```
+
+```{r, echo=TRUE, include=TRUE, message=FALSE, warning=FALSE}
+# prediction of combination 1 using the ensemble model
+model_ensemble(test_prediction_1)
+
+```
+
+
+### For combination 2: Using variables Pregnancies, Glucose, Insulin, BMI, DPF, Age
+
+The test prediction accuracy is calculated below.
+
+```{r}
+
+# prediction of combination 2 using the ensemble model
+model_ensemble(test_prediction_2)
+
+```
+
+### For combination 3: Using variables Pregnancies, Glucose, BMI, Age
+
+The test prediction accuracy is calculated below.
+
+```{r}
+
+# prediction of combination 3 using the ensemble model
+model_ensemble(test_prediction_3)
+```
+
+# Section 4. Conclusion
+
+To summarize, this project studied the predictors that be effectively used to predict whether a woman has diabete based on some or all of the variables Pregnancies, Glucose, SkinThcikness, BloodPressure, Insulin, BMI, DPF, Age
+
+We choose three different combinations
+
+1. All right variables
+
+2. Pregnancies, Glucose, Insulin, BMI, DPF, Age
+
+3. Pregnancies, Glucose, BMI, Age
+
+A total of 7 models are used in training. An emsemble of the seven is also built based on the majority voting mechanism. 
+
+The major limitation of this project is the size of the dataset. Ideally, it is better to have 20,000 records. Ours only has 768 records. However, the method used in this project can be used in future dataset. 
+
+In the future, we wish to explore large dataset using the same method developped in this project.
+
+
+
+# Section 5. Reference
+
+1. https://www.kaggle.com/datasets/akshaydattatraykhare/diabetes-dataset
+
+2. https://docs.github.com/en/get-started/start-your-journey/downloading-files-from-github
+3. https://github.com/whu-asurams/diabetes/archive/refs/heads/main.zip
